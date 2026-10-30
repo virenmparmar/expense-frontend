@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Personal Finance Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--ink:#172033;--muted:#697386;--line:#e5e9f0;--blue:#315efb;--green:#16845b;--red:#c44747}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+header{background:#111c35;color:#fff;padding:18px max(20px,calc((100% - 1400px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+header h1{font-size:20px;margin:0}header small{color:#bdc8df}.wrap{max-width:1400px;margin:24px auto;padding:0 20px}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.tab{border:1px solid var(--line);background:#fff;padding:9px 14px;border-radius:9px;cursor:pointer}.tab.active{background:var(--blue);color:white;border-color:var(--blue)}
+.panel{display:none}.panel.active{display:block}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:14px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:17px;box-shadow:0 2px 8px #16213b08}
+.metric{font-size:25px;font-weight:700;margin-top:5px}.muted{color:var(--muted)}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.between{justify-content:space-between}
+input,select,button{font:inherit}input,select{border:1px solid #d8deea;border-radius:8px;padding:9px;background:#fff;color:var(--ink)}button.primary{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer}button.secondary{background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 12px;cursor:pointer}
+button.danger{color:var(--red)}.uploadbox{border:2px dashed #b9c6df;border-radius:12px;padding:22px;text-align:center;background:#fbfcff}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}.chartbox{height:300px;position:relative}
+table{border-collapse:collapse;width:100%;min-width:780px}th,td{text-align:left;padding:10px 9px;border-bottom:1px solid var(--line);vertical-align:middle}th{color:var(--muted);font-size:12px;position:sticky;top:0;background:#fafbfe}
+.tablewrap{overflow:auto;max-height:620px}.amount{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.pill{font-size:11px;border-radius:20px;padding:3px 8px;background:#eef1f7}.pill.skip{background:#fff0e8;color:#a34d1b}.inlinecat{max-width:155px;padding:6px}
+.status{margin:12px 0;padding:10px 12px;border-radius:8px;background:#edf3ff;color:#2347a5}.status.error{background:#fff0f0;color:#a12b2b}
+.settings-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.tag{background:#eef1f7;border-radius:20px;padding:6px 10px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}@media(max-width:520px){.grid{grid-template-columns:1fr}.wrap{padding:0 12px}}
+</style>
+</head>
+<body>
+<header><div><h1>Personal Finance Tracker</h1><small>Your statements, organized in your Google Sheet</small></div><div id="connection" class="muted">Not connected</div></header>
+<div class="wrap">
+<nav>
+<button class="tab active" data-tab="dashboard">Dashboard</button><button class="tab" data-tab="transactions">Transactions</button><button class="tab" data-tab="settings">Settings</button>
+</nav>
+<div id="message" class="status" style="display:none"></div>
+<section id="dashboard" class="panel active">
+<div class="card">
+<div class="row between"><div><b>Upload statements</b><div class="muted">PDF statements with selectable text or CSV exports</div></div><button class="secondary" id="refreshBtn">Refresh data</button></div>
+<div class="uploadbox" style="margin-top:14px"><input type="file" id="files" accept=".pdf,.csv,text/csv,application/pdf" multiple><p class="muted">Files are parsed in your browser. Extracted transaction details are sent to your Google Sheet.</p><button class="primary" id="uploadBtn">Parse and import</button></div>
+</div>
+<div class="row" style="margin:16px 0"><label>From <input type="date" id="fromDate"></label><label>To <input type="date" id="toDate"></label><button class="secondary" id="applyDates">Apply date range</button><button class="secondary" id="thisMonth">This month</button></div>
+<div class="grid">
+<div class="card"><div class="muted">Spending</div><div class="metric" id="spending">$0.00</div></div>
+<div class="card"><div class="muted">Income</div><div class="metric" id="income">$0.00</div></div>
+<div class="card"><div class="muted">Net cash flow</div><div class="metric" id="net">$0.00</div></div>
+<div class="card"><div class="muted">Transactions</div><div class="metric" id="count">0</div></div>
+</div>
+<div class="charts">
+<div class="card"><b>Spending by category</b><div class="chartbox"><canvas id="categoryChart"></canvas></div></div>
+<div class="card"><b>Spending over time</b><div class="chartbox"><canvas id="trendChart"></canvas></div></div>
+</div>
+<div class="card" style="margin-top:14px"><b>Monthly summary</b><div class="tablewrap"><table id="monthlyTable"><thead><tr><th>Month</th><th class="amount">Spending</th><th class="amount">Income</th><th class="amount">Net</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+<section id="transactions" class="panel">
+<div class="card">
+<div class="row between"><div><b>Transactions</b><div class="muted">Edit categories or mark transactions as skipped.</div></div><label><input type="checkbox" id="showSkipped"> Show skipped</label></div>
+<div class="row" style="margin:14px 0"><input id="search" placeholder="Search merchant or description" style="flex:1;min-width:190px"><select id="categoryFilter"><option value="">All categories</option></select><input type="date" id="txFrom"><input type="date" id="txTo"><select id="skipFilter"><option value="all">All status</option><option value="active">Not skipped</option><option value="skipped">Skipped</option></select></div>
+<div class="tablewrap"><table><thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th class="amount">Amount</th><th>Status</th><th>Action</th></tr></thead><tbody id="transactionsBody"></tbody></table></div>
+</div>
+</section>
+<section id="settings" class="panel">
+<div class="card">
+<h3>Connection</h3><p class="muted">Paste your deployed Google Apps Script web app URL and the access key you configured in Script Properties.</p>
+<div class="row"><input id="apiUrl" placeholder="https://script.google.com/macros/s/.../exec" style="flex:1;min-width:250px"><input id="apiKey" type="password" placeholder="Access key"><button class="primary" id="saveConnection">Save and connect</button></div>
+<p class="muted">The URL and key are stored in this browser only. Do not publish your access key in a public repository.</p>
+</div>
+<div class="card" style="margin-top:14px">
+<h3>Skip keywords</h3><p class="muted">Transactions whose merchant or description contains one of these phrases are automatically skipped. Examples: credit card payment, transfer to savings.</p>
+<div class="row"><input id="skipKeyword" placeholder="Keyword or phrase"><button class="primary" id="addKeyword">Add keyword</button></div><div id="keywordList" class="settings-list"></div>
+</div>
+<div class="card" style="margin-top:14px">
+<h3>Categories</h3><p class="muted">Default categories are editable per transaction. Manual merchant category choices are remembered for future imports.</p><div id="categoryList" class="settings-list"></div>
+</div>
+<div class="card" style="margin-top:14px"><h3>Privacy and limitations</h3><p class="muted">Statement files are parsed locally in your browser; this project sends extracted transaction fields to Apps Script and stores them in your Sheet. Avoid using this on a shared computer. Text-based PDFs and CSVs are supported. Scanned/image-only PDFs need OCR, which is not included in this starter project. Always review imported transactions and categories against the original statement.</p></div>
+</section>
+</div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const DEFAULT_CATEGORIES=['Income','Housing','Utilities','Groceries','Dining','Transportation','Shopping','Healthcare','Entertainment','Travel','Insurance','Education','Fees','Transfer','Other'];
+let transactions=[], settings={skipKeywords:['credit card payment','payment thank you','online payment','transfer to savings'],categories:DEFAULT_CATEGORIES}, catChart,trendChart;
+const $=id=>document.getElementById(id), money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n)||0);
+const cfg=()=>({url:$('apiUrl').value.trim()||localStorage.getItem('financeApiUrl')||'',key:$('apiKey').value||sessionStorage.getItem('financeApiKey')||''});
+function msg(t,err=false){$('message').textContent=t;$('message').className='status'+(err?' error':'');$('message').style.display='block'}
+function jsonp(url){return new Promise((resolve,reject)=>{const cb='cb_'+Math.random().toString(36).slice(2);const s=document.createElement('script');const timer=setTimeout(()=>{cleanup();reject(new Error('Request timed out. Check your Apps Script URL and deployment.'))},20000);function cleanup(){clearTimeout(timer);delete window[cb];s.remove()}window[cb]=d=>{cleanup();resolve(d)};s.onerror=()=>{cleanup();reject(new Error('Could not reach Apps Script.'))};s.src=url+'&callback='+cb;document.body.appendChild(s)})}
+async function apiRead(){let c=cfg();if(!c.url||!c.key)throw Error('Add your Apps Script URL and access key in Settings.');return jsonp(c.url+'?action=read&key='+encodeURIComponent(c.key))}
+async function apiWrite(payload){let c=cfg();if(!c.url||!c.key)throw Error('Add your Apps Script URL and access key in Settings.');await fetch(c.url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,key:c.key})})}
+async function refresh(){try{const r=await apiRead();if(!r.ok)throw Error(r.error||'Backend error');transactions=r.transactions||[];settings={...settings,...(r.settings||{})};$('connection').textContent='Connected to Google Sheets';renderAll()}catch(e){$('connection').textContent='Not connected';msg(e.message,true)}}
+function renderAll(){renderDashboard();renderTransactions();renderSettings()}
+function activeTx(){return transactions.filter(t=>!t.skipped)}
+function inRange(t){const d=t.date;return (! $('fromDate').value||d>=$('fromDate').value)&&(!$('toDate').value||d<=$('toDate').value)}
+function renderDashboard(){const rows=activeTx().filter(inRange),spend=rows.filter(t=>Number(t.amount)<0),inc=rows.filter(t=>Number(t.amount)>0);const s=-spend.reduce((a,t)=>a+Number(t.amount),0),i=inc.reduce((a,t)=>a+Number(t.amount),0);$('spending').textContent=money(s);$('income').textContent=money(i);$('net').textContent=money(i-s);$('count').textContent=rows.length;
+const cats={};spend.forEach(t=>cats[t.category||'Other']=(cats[t.category||'Other']||0)-Number(t.amount));
+if(catChart)catChart.destroy();catChart=new Chart($('categoryChart'),{type:'doughnut',data:{labels:Object.keys(cats),datasets:[{data:Object.values(cats)}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+const months={};spend.forEach(t=>{let m=t.date.slice(0,7);months[m]=(months[m]||0)-Number(t.amount)});if(trendChart)trendChart.destroy();trendChart=new Chart($('trendChart'),{type:'bar',data:{labels:Object.keys(months).sort(),datasets:[{label:'Spending',data:Object.keys(months).sort().map(k=>months[k])}]},options:{responsive:true,maintainAspectRatio:false}});
+const monthly={};rows.forEach(t=>{let m=t.date.slice(0,7);monthly[m]??={spend:0,income:0};if(Number(t.amount)<0)monthly[m].spend-=Number(t.amount);else monthly[m].income+=Number(t.amount)});$('monthlyTable').querySelector('tbody').innerHTML=Object.keys(monthly).sort().reverse().map(m=>`<tr><td>${m}</td><td class="amount">${money(monthly[m].spend)}</td><td class="amount">${money(monthly[m].income)}</td><td class="amount">${money(monthly[m].income-monthly[m].spend)}</td></tr>`).join('')}
+function renderTransactions(){let q=$('search').value.toLowerCase(),cat=$('categoryFilter').value,from=$('txFrom').value,to=$('txTo').value,skip=$('skipFilter').value,show=$('showSkipped').checked;let rows=transactions.filter(t=>(show||!t.skipped)&&(skip==='all'||(skip==='skipped'?t.skipped:!t.skipped))&&(!cat||t.category===cat)&&(!from||t.date>=from)&&(!to||t.date<=to)&&(`${t.merchant} ${t.description||''}`.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));$('transactionsBody').innerHTML=rows.map(t=>`<tr><td>${esc(t.date)}</td><td>${esc(t.merchant)}</td><td><select class="inlinecat" data-id="${esc(t.id)}">${(settings.categories||DEFAULT_CATEGORIES).map(c=>`<option ${c===t.category?'selected':''}>${esc(c)}</option>`).join('')}</select></td><td class="amount">${money(t.amount)}</td><td>${t.skipped?'<span class="pill skip">Skipped</span>':'<span class="pill">Included</span>'}</td><td><button class="secondary" data-skip="${esc(t.id)}">${t.skipped?'Unskip':'Skip'}</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No transactions match these filters.</td></tr>';$('categoryFilter').innerHTML='<option value="">All categories</option>'+(settings.categories||DEFAULT_CATEGORIES).map(c=>`<option>${esc(c)}</option>`).join('')}
+function renderSettings(){$('keywordList').innerHTML=(settings.skipKeywords||[]).map(k=>`<span class="tag">${esc(k)} <button class="secondary danger" data-delkeyword="${esc(k)}">×</button></span>`).join('')||'<span class="muted">No keywords yet</span>';$('categoryList').innerHTML=(settings.categories||DEFAULT_CATEGORIES).map(c=>`<span class="tag">${esc(c)}</span>`).join('')}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function categoryFor(merchant,description){let text=(merchant+' '+description).toLowerCase();let rules=[['groceries',['whole foods','trader joe','safeway','kroger','costco','grocery']],['Dining',['restaurant','cafe','coffee','doordash','uber eats','grubhub']],['Transportation',['uber','lyft','shell','chevron','exxon','gas station']],['Utilities',['electric','water bill','internet','verizon','comcast']],['Shopping',['amazon','walmart','target','best buy']],['Housing',['rent','mortgage']],['Healthcare',['pharmacy','medical','hospital','clinic']],['Entertainment',['netflix','spotify','hulu','cinema']]];for(let [cat,words] of rules)if(words.some(w=>text.includes(w)))return cat;return 'Other'}
+function isSkipped(merchant,description){let text=(merchant+' '+description).toLowerCase();return (settings.skipKeywords||[]).some(k=>text.includes(k.toLowerCase()))}
+function parseCSV(text){let lines=text.replace(/\r/g,'').split('\n').filter(x=>x.trim());let delim=(lines[0].match(/;/g)||[]).length>(lines[0].match(/,/g)||[]).length?';':',';let parseLine=line=>{let out=[],v='',q=false;for(let i=0;i<line.length;i++){let c=line[i];if(c==='"'&&line[i+1]==='"'&&q){v+='"';i++}else if(c==='"')q=!q;else if(c===delim&&!q){out.push(v.trim());v=''}else v+=c}out.push(v.trim());return out};let data=lines.map(parseLine),head=data[0].map(x=>x.toLowerCase());let idx=(terms)=>head.findIndex(h=>terms.some(t=>h.includes(t)));let di=idx(['date']),mi=idx(['description','merchant','payee','name']),ai=idx(['amount','debit','credit']);if(di<0||mi<0||ai<0)throw Error('CSV needs recognizable Date, Description/Merchant, and Amount columns.');return data.slice(1).map(r=>{let raw=r[ai]||'0',amt=Number(raw.replace(/[$,\s]/g,''));if(/^\(.*\)$/.test(raw))amt=-Math.abs(amt);return normalize(r[di],r[mi],amt,r[mi])}).filter(Boolean)}
+function normalize(date,merchant,amount,description){let d=new Date(date);if(!date||!merchant||!Number.isFinite(Number(amount))||isNaN(d))return null;let iso=d.toISOString().slice(0,10),m=String(merchant).trim().replace(/\s+/g,' ');return {date:iso,merchant:m,description:String(description||m),amount:Number(amount),category:categoryFor(m,description||''),skipped:isSkipped(m,description||'')}}
+async function parsePDF(file){const buf=await file.arrayBuffer(),pdf=await pdfjsLib.getDocument({data:buf}).promise;let text='';for(let p=1;p<=pdf.numPages;p++){let page=await pdf.getPage(p),c=await page.getTextContent();text+=c.items.map(x=>x.str).join(' ')+'\n'}if(text.trim().length<30)throw Error(file.name+' appears to be scanned. OCR is not included. Export it as CSV or use a text-based PDF.');let out=[];const re=/(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\s+(.+?)\s+(-?\$?\d[\d,]*\.\d{2})/g;let m;while((m=re.exec(text))!==null){let a=Number(m[3].replace(/[$,]/g,''));let n=normalize(m[1],m[2],a,m[2]);if(n)out.push(n)}if(!out.length)throw Error('Could not identify transactions in '+file.name+'. Try a CSV export; PDF layouts vary by bank.');return out}
+async function importFiles(){let files=[...$('files').files];if(!files.length)return msg('Choose one or more PDF or CSV files.',true);try{let all=[];for(let f of files){let rows=f.name.toLowerCase().endsWith('.csv')?parseCSV(await f.text()):await parsePDF(f);all.push(...rows)}if(!all.length)throw Error('No transactions found.');await apiWrite({action:'append',transactions:all});msg(`Submitted ${all.length} transactions. Checking Google Sheets for the import…`);setTimeout(refresh,2200);$('files').value=''}catch(e){msg(e.message,true)}}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab,.panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.tab).classList.add('active')});
+$('uploadBtn').onclick=importFiles;$('refreshBtn').onclick=refresh;$('applyDates').onclick=renderDashboard;$('thisMonth').onclick=()=>{let d=new Date();$('fromDate').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);$('toDate').value=d.toISOString().slice(0,10);renderDashboard()};
+['search','categoryFilter','txFrom','txTo','skipFilter','showSkipped'].forEach(id=>$(id).addEventListener('input',renderTransactions));
+$('transactionsBody').addEventListener('change',async e=>{if(e.target.matches('.inlinecat')){let id=e.target.dataset.id,category=e.target.value;try{await apiWrite({action:'update',id,category});let t=transactions.find(x=>x.id===id);if(t)t.category=category;msg('Category update submitted.');}catch(err){msg(err.message,true)}}});
+$('transactionsBody').addEventListener('click',async e=>{let id=e.target.dataset.skip;if(id){let t=transactions.find(x=>x.id===id);await apiWrite({action:'update',id,skipped:!t.skipped});t.skipped=!t.skipped;renderAll();msg('Skip status update submitted.')}})
+$('saveConnection').onclick=()=>{let u=$('apiUrl').value.trim(),k=$('apiKey').value;if(!u||!k)return msg('Enter both the Apps Script URL and access key.',true);localStorage.setItem('financeApiUrl',u);sessionStorage.setItem('financeApiKey',k);refresh()};
+$('addKeyword').onclick=async()=>{let k=$('skipKeyword').value.trim();if(!k)return;settings.skipKeywords=[...(settings.skipKeywords||[]),k];await apiWrite({action:'settings',settings});$('skipKeyword').value='';renderSettings();msg('Keyword saved.')};
+$('keywordList').addEventListener('click',async e=>{let k=e.target.dataset.delkeyword;if(k){settings.skipKeywords=settings.skipKeywords.filter(x=>x!==k);await apiWrite({action:'settings',settings});renderSettings();msg('Keyword removed.')}});
+$('apiUrl').value=localStorage.getItem('financeApiUrl')||'';refresh();
+</script>
+</body></html>
