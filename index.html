@@ -98,8 +98,32 @@ function categoryFor(merchant,description){let text=(merchant+' '+description).t
 function isSkipped(merchant,description){let text=(merchant+' '+description).toLowerCase();return (settings.skipKeywords||[]).some(k=>text.includes(k.toLowerCase()))}
 function parseCSV(text){let lines=text.replace(/\r/g,'').split('\n').filter(x=>x.trim());let delim=(lines[0].match(/;/g)||[]).length>(lines[0].match(/,/g)||[]).length?';':',';let parseLine=line=>{let out=[],v='',q=false;for(let i=0;i<line.length;i++){let c=line[i];if(c==='"'&&line[i+1]==='"'&&q){v+='"';i++}else if(c==='"')q=!q;else if(c===delim&&!q){out.push(v.trim());v=''}else v+=c}out.push(v.trim());return out};let data=lines.map(parseLine),head=data[0].map(x=>x.toLowerCase());let idx=(terms)=>head.findIndex(h=>terms.some(t=>h.includes(t)));let di=idx(['date']),mi=idx(['description','merchant','payee','name']),ai=idx(['amount','debit','credit']);if(di<0||mi<0||ai<0)throw Error('CSV needs recognizable Date, Description/Merchant, and Amount columns.');return data.slice(1).map(r=>{let raw=r[ai]||'0',amt=Number(raw.replace(/[$,\s]/g,''));if(/^\(.*\)$/.test(raw))amt=-Math.abs(amt);return normalize(r[di],r[mi],amt,r[mi])}).filter(Boolean)}
 function normalize(date,merchant,amount,description){let d=new Date(date);if(!date||!merchant||!Number.isFinite(Number(amount))||isNaN(d))return null;let iso=d.toISOString().slice(0,10),m=String(merchant).trim().replace(/\s+/g,' ');return {date:iso,merchant:m,description:String(description||m),amount:Number(amount),category:categoryFor(m,description||''),skipped:isSkipped(m,description||'')}}
-async function parsePDF(file){const buf=await file.arrayBuffer(),pdf=await pdfjsLib.getDocument({data:buf}).promise;let text='';for(let p=1;p<=pdf.numPages;p++){let page=await pdf.getPage(p),c=await page.getTextContent();text+=c.items.map(x=>x.str).join(' ')+'\n'}if(text.trim().length<30)throw Error(file.name+' appears to be scanned. OCR is not included. Export it as CSV or use a text-based PDF.');let out=[];const re=/(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\s+(.+?)\s+(-?\$?\d[\d,]*\.\d{2})/g;let m;while((m=re.exec(text))!==null){let a=Number(m[3].replace(/[$,]/g,''));let n=normalize(m[1],m[2],a,m[2]);if(n)out.push(n)}if(!out.length)throw Error('Could not identify transactions in '+file.name+'. Try a CSV export; PDF layouts vary by bank.');return out}
-async function importFiles(){let files=[...$('files').files];if(!files.length)return msg('Choose one or more PDF or CSV files.',true);try{let all=[];for(let f of files){let rows=f.name.toLowerCase().endsWith('.csv')?parseCSV(await f.text()):await parsePDF(f);all.push(...rows)}if(!all.length)throw Error('No transactions found.');await apiWrite({action:'append',transactions:all});msg(`Submitted ${all.length} transactions. Checking Google Sheets for the import…`);setTimeout(refresh,2200);$('files').value=''}catch(e){msg(e.message,true)}}
+async function parsePDF(file) {
+    const buf = await file.arrayBuffer(),
+        pdf = await pdfjsLib.getDocument({
+            data: buf
+        }).promise;
+    let text = '';
+  console.log('pdf.numPages', pdf.numPages);
+    for (let p = 1; p <= pdf.numPages; p++) {
+        let page = await pdf.getPage(p),
+            c = await page.getTextContent();
+      console.log(page);
+      console.log(JSON.stringify(page));
+        text += c.items.map(x => x.str).join(' ') + '\n'
+    }
+    if (text.trim().length < 30) throw Error(file.name + ' appears to be scanned. OCR is not included. Export it as CSV or use a text-based PDF.');
+    let out = [];
+    const re = /(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\s+(.+?)\s+(-?\$?\d[\d,]*\.\d{2})/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        let a = Number(m[3].replace(/[$,]/g, ''));
+        let n = normalize(m[1], m[2], a, m[2]);
+        if (n) out.push(n)
+    }
+    if (!out.length) throw Error('Could not identify transactions in ' + file.name + '. Try a CSV export; PDF layouts vary by bank.');
+    return out
+}async function importFiles(){let files=[...$('files').files];if(!files.length)return msg('Choose one or more PDF or CSV files.',true);try{let all=[];for(let f of files){let rows=f.name.toLowerCase().endsWith('.csv')?parseCSV(await f.text()):await parsePDF(f);all.push(...rows)}if(!all.length)throw Error('No transactions found.');await apiWrite({action:'append',transactions:all});msg(`Submitted ${all.length} transactions. Checking Google Sheets for the import…`);setTimeout(refresh,2200);$('files').value=''}catch(e){msg(e.message,true)}}
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab,.panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.tab).classList.add('active')});
 $('uploadBtn').onclick=importFiles;$('refreshBtn').onclick=refresh;$('applyDates').onclick=renderDashboard;$('thisMonth').onclick=()=>{let d=new Date();$('fromDate').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);$('toDate').value=d.toISOString().slice(0,10);renderDashboard()};
 ['search','categoryFilter','txFrom','txTo','skipFilter','showSkipped'].forEach(id=>$(id).addEventListener('input',renderTransactions));
